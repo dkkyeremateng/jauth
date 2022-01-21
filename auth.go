@@ -1,4 +1,4 @@
-// Package auth provides authentication and authorization support.
+// Package jauth provides authentication and authorization support.
 package jauth
 
 import (
@@ -10,8 +10,7 @@ import (
 )
 
 var (
-	ErrAuthenticationFailure = errors.New("authentication failed")
-	ErrForbidden             = errors.New("attempted action is not allowed")
+	ErrForbidden = errors.New("attempted action is not allowed")
 )
 
 // KeyLookup declares a method set of behavior for looking up
@@ -32,7 +31,7 @@ type Auth struct {
 }
 
 // New creates an Auth to support authentication/authorization.
-func new(activeKID string, keyLookup KeyLookup) (*Auth, error) {
+func New(activeKID string, keyLookup KeyLookup) (*Auth, error) {
 
 	// The activeKID represents the private key used to signed new tokens.
 	_, err := keyLookup.PrivateKey(activeKID)

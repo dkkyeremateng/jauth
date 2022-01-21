@@ -6,6 +6,9 @@ import (
 	"crypto/rsa"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
+	"path"
 	"strings"
 	"sync"
 
@@ -37,17 +40,50 @@ func NewMap(store map[string]*rsa.PrivateKey) *KeyStore {
 // of a directory. The name of each PEM file will be used as the key id.
 // Example: keystore.NewFS(os.DirFS("/zarf/keys/"))
 // Example: /zarf/keys/54bb2165-71e1-41a6-af3e-7da4a0e1e2c1.pem
-func NewFS(privatePEM []byte, fileName string) (*KeyStore, error) {
+func NewFS(fsys fs.FS) (*KeyStore, error) {
 	ks := KeyStore{
 		store: make(map[string]*rsa.PrivateKey),
 	}
 
-	privateKey, err := jwt.ParseRSAPrivateKeyFromPEM(privatePEM)
-	if err != nil {
-		return &KeyStore{}, fmt.Errorf("parsing auth private key: %w", err)
+	fn := func(fileName string, dirEntry fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("walkdir failure: %w", err)
+		}
+
+		if dirEntry.IsDir() {
+			return nil
+		}
+
+		if path.Ext(fileName) != ".pem" {
+			return nil
+		}
+
+		file, err := fsys.Open(fileName)
+		if err != nil {
+			return fmt.Errorf("opening key file: %w", err)
+		}
+		defer file.Close()
+
+		// limit PEM file size to 1 megabyte. This should be reasonable for
+		// almost any PEM file and prevents shenanigans like linking the file
+		// to /dev/random or something like that.
+		privatePEM, err := io.ReadAll(io.LimitReader(file, 1024*1024))
+		if err != nil {
+			return fmt.Errorf("reading auth private key: %w", err)
+		}
+
+		privateKey, err := jwt.ParseRSAPrivateKeyFromPEM(privatePEM)
+		if err != nil {
+			return fmt.Errorf("parsing auth private key: %w", err)
+		}
+
+		ks.store[strings.TrimSuffix(dirEntry.Name(), ".pem")] = privateKey
+		return nil
 	}
 
-	ks.store[strings.TrimSuffix(fileName, ".pem")] = privateKey
+	if err := fs.WalkDir(fsys, ".", fn); err != nil {
+		return nil, fmt.Errorf("walking directory: %w", err)
+	}
 
 	return &ks, nil
 }
